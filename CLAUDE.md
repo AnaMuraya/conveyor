@@ -57,10 +57,20 @@ src/
   tasks/        # TasksModule — POST /tasks, GET /tasks/:id (in-memory for now)
   llm/          # LlmModule — LlmProvider seam + EchoLlmProvider
   app.module.ts # composes feature modules
-docs/adr/       # Architecture Decision Records (see below)
+docs/architecture.md  # living system + flow diagrams (Mermaid)
+docs/adr/             # Architecture Decision Records (see below)
 .github/workflows/ci.yml
 test/           # e2e specs
 ```
+
+## Architecture diagrams
+
+[`docs/architecture.md`](docs/architecture.md) holds the **living** system and
+request-flow diagrams (Mermaid). It always reflects the current state, with a
+labelled sketch of the target. Update it as structure or flows change — solid
+lines are built, dashed are planned. Whole-system diagrams live there, not in
+ADRs (which are immutable); an ADR may embed one small diagram scoped to its own
+decision.
 
 ## Decisions: ADRs
 
