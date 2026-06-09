@@ -1,4 +1,11 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 
 import { CreateTaskDto } from './dto/create-task.dto';
 import type { Task } from './task.entity';
@@ -9,12 +16,12 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Post()
-  create(@Body() createTaskDto: CreateTaskDto): Task {
+  create(@Body() createTaskDto: CreateTaskDto): Promise<Task> {
     return this.tasksService.create(createTaskDto);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string): Task {
+  findOne(@Param('id', ParseUUIDPipe) id: string): Promise<Task> {
     return this.tasksService.findOne(id);
   }
 }

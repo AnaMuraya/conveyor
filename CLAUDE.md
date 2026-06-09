@@ -18,20 +18,33 @@ caching, observability, containerization, and deployment (`v1.0`) build on top.
 ## Stack
 
 NestJS · TypeScript · PostgreSQL · Redis · BullMQ · Ollama · Docker.
-Everything runs locally at $0 (local Ollama for inference).
+Everything runs locally at $0 (local Ollama for inference). Requires
+**Node ≥ 22.12** (see `engines`).
 
 ## Commands
 
 ```bash
+docker compose up -d  # start PostgreSQL locally
+cp .env.example .env  # then set DB credentials
+npm run migration:run # apply migrations to the database
+
 npm run start:dev     # run with watch
 npm run lint          # eslint (autofix)
-npm test              # unit tests (Jest, *.spec.ts under src/)
-npm run test:e2e      # e2e tests (test/*.e2e-spec.ts)
+npm test              # unit tests (Jest, *.spec.ts under src/) — no DB needed
+npm run test:e2e      # e2e tests (test/*.e2e-spec.ts) — needs DB + migrations
 npm run build         # nest build -> dist/
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint → unit → e2e → build on push to `main`
-and on every PR. Keep it green.
+Migrations use the TypeORM CLI: `migration:run`, `migration:revert`,
+`migration:generate -- <path>` (diff entities → a new migration), and
+`migration:create -- <path>`. The CLI loads an ESM-only yargs, so the project
+requires **Node ≥ 22.12** (enforced via `engines`; CI runs Node 22). Schema is
+owned by migrations (`synchronize: false`); the shared `DataSource` lives in
+`src/config/data-source.ts`.
+
+CI (`.github/workflows/ci.yml`) spins up a Postgres service, then runs
+lint → unit → migrations → e2e → build on push to `main` and on every PR. Keep
+it green.
 
 ## Architecture & conventions
 
@@ -43,7 +56,11 @@ and on every PR. Keep it green.
   `LlmModule` via the `LLM_PROVIDER` token; swapping Echo → Ollama → hosted is a
   one-line change, never a caller change (ADR-0003).
 - **TypeScript contracts first.** DTOs, entities, and interfaces give
-  compile-time guarantees; runtime validation (class-validator) comes later.
+  compile-time guarantees; broad runtime validation (class-validator) comes
+  later, though id params are already UUID-validated.
+- **Persistence behind the service.** `TasksService` depends on a TypeORM
+  `Repository<Task>`; callers stay ORM-agnostic. Schema changes go through
+  migrations, never `synchronize` (ADR-0005).
 - **Failure-path tests are the headline.** "duplicate delivery doesn't
   double-process" / "unknown id → 404" matter more than happy-path CRUD.
 - **Earn every pattern.** No saga without genuine multi-step work; a circuit
@@ -54,11 +71,14 @@ and on every PR. Keep it green.
 
 ```
 src/
-  tasks/        # TasksModule — POST /tasks, GET /tasks/:id (in-memory for now)
+  tasks/        # TasksModule — POST /tasks, GET /tasks/:id (Postgres via TypeORM)
   llm/          # LlmModule — LlmProvider seam + EchoLlmProvider
+  config/       # data-source.ts — shared TypeORM DataSource (app + CLI)
+  migrations/   # TypeORM migrations (schema source of truth)
   app.module.ts # composes feature modules
 docs/architecture.md  # living system + flow diagrams (Mermaid)
 docs/adr/             # Architecture Decision Records (see below)
+docker-compose.yml    # local PostgreSQL
 .github/workflows/ci.yml
 test/           # e2e specs
 ```
@@ -89,6 +109,8 @@ add a row to `docs/adr/README.md`.
 
 ## Current status
 
-Tasks API (`POST /tasks`, `GET /tasks/:id`) backed by an in-memory store, plus an
-`LlmProvider` adapter seam with an echo stub (`EchoLlmProvider`). CI and ADRs
-0001–0004 are in place. Next up: PostgreSQL persistence behind `TasksService`.
+Tasks API (`POST /tasks`, `GET /tasks/:id`) backed by **PostgreSQL via TypeORM**
+(migrations as the schema source of truth), plus an `LlmProvider` adapter seam
+with an echo stub (`EchoLlmProvider`). CI runs against a Postgres service. ADRs
+0001–0005 are in place. Next up: move the LLM call off the request path (queue +
+worker).
