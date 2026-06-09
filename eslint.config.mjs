@@ -1,6 +1,7 @@
 // @ts-check
 import eslint from '@eslint/js';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
+import simpleImportSort from 'eslint-plugin-simple-import-sort';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
@@ -25,11 +26,31 @@ export default tseslint.config(
     },
   },
   {
+    plugins: {
+      'simple-import-sort': simpleImportSort,
+    },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
-      "prettier/prettier": ["error", { endOfLine: "auto" }],
+      'prettier/prettier': ['error', { endOfLine: 'auto' }],
+      // Import order: external packages, then internal absolute paths, then
+      // relative paths — each separated by a blank line, sorted within a group.
+      'simple-import-sort/imports': [
+        'error',
+        {
+          groups: [
+            // External: side-effect imports, Node.js builtins, npm packages.
+            ['^\\u0000', '^node:', '^@?\\w'],
+            // Internal absolute paths (tsconfig baseUrl, e.g. `src/...`, or a
+            // future `@/...` alias). Longest-match wins, so these beat the
+            // package regex above.
+            ['^src/', '^@/'],
+            // Relative paths (`./`, `../`).
+            ['^\\.'],
+          ],
+        },
+      ],
     },
   },
 );

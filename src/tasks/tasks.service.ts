@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { Injectable, NotFoundException } from '@nestjs/common';
+
 import { CreateTaskDto } from './dto/create-task.dto';
 import { Task } from './task.entity';
 
