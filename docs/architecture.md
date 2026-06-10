@@ -13,8 +13,10 @@ this document shows the resulting structure and behaviour.
 
 ## System overview — current
 
-A single NestJS application accepts tasks over HTTP and stores them in memory.
-The LLM provider seam exists but is not yet consumed by task processing.
+A single NestJS application accepts tasks over HTTP and persists them in
+PostgreSQL via a TypeORM repository. The LLM provider seam exists but is not yet
+consumed by task processing. The HTTP API is documented with OpenAPI/Swagger,
+served at `/docs` (ADR-0006).
 
 ```mermaid
 flowchart LR
@@ -26,8 +28,8 @@ flowchart LR
     subgraph Tasks["TasksModule"]
       TC["TasksController<br/>POST /tasks · GET /tasks/:id"]
       TS["TasksService"]
-      Store[("In-memory store<br/>Map&lt;id, Task&gt;")]
-      TC --> TS --> Store
+      Repo["Repository&lt;Task&gt;"]
+      TC --> TS --> Repo
     end
 
     subgraph Llm["LlmModule"]
@@ -37,7 +39,10 @@ flowchart LR
     end
   end
 
+  DB[("PostgreSQL<br/>tasks table")]
+
   Client -->|HTTP / JSON| TC
+  Repo -->|SQL| DB
   TS -. "not wired yet — future: generate(prompt)" .-> Token
 ```
 
@@ -50,33 +55,45 @@ sequenceDiagram
   actor Client
   participant C as TasksController
   participant S as TasksService
-  participant M as In-memory store
+  participant R as Repository
+  participant DB as PostgreSQL
 
   Client->>C: POST /tasks { type, payload }
   C->>S: create(dto)
-  S->>S: build Task (uuid, status = pending, timestamps)
-  S->>M: set(id, task)
+  S->>R: create + save (status = pending)
+  R->>DB: INSERT INTO tasks ... RETURNING *
+  DB-->>R: row (id, timestamps)
+  R-->>S: Task
   S-->>C: Task
   C-->>Client: 201 Created + Task (status: pending)
 ```
 
 ### Fetch a task — `GET /tasks/:id`
 
+`:id` is validated as a UUID first (`ParseUUIDPipe`), so a malformed id is
+rejected with `400` before any lookup.
+
 ```mermaid
 sequenceDiagram
   actor Client
   participant C as TasksController
   participant S as TasksService
-  participant M as In-memory store
+  participant R as Repository
+  participant DB as PostgreSQL
 
   Client->>C: GET /tasks/:id
+  Note over C: ParseUUIDPipe — malformed id → 400
   C->>S: findOne(id)
-  S->>M: get(id)
+  S->>R: findOneBy({ id })
+  R->>DB: SELECT * FROM tasks WHERE id = $1
   alt found
-    M-->>S: Task
+    DB-->>R: row
+    R-->>S: Task
     S-->>C: Task
     C-->>Client: 200 OK + Task
   else not found
+    DB-->>R: (no rows)
+    R-->>S: null
     S-->>C: throw NotFoundException
     C-->>Client: 404 Not Found
   end
@@ -110,7 +127,7 @@ flowchart LR
 | Concern | Today | Target |
 | --- | --- | --- |
 | Task intake | `TasksController` | API gateway service |
-| Storage | in-memory `Map` | PostgreSQL |
+| Storage | ✅ PostgreSQL (TypeORM) | PostgreSQL, shared by API + worker |
 | LLM work | seam only (echo stub) | worker calls provider off the request path |
 | Delivery | synchronous | queue + retries + dead-letter queue |
 | Provider | `EchoLlmProvider` | Ollama (local) / hosted, same `LlmProvider` seam |

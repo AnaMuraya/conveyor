@@ -1,98 +1,116 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Conveyor
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A reliable, event-driven **AI task platform** built with NestJS. Clients submit
+tasks over an HTTP API; the system persists them, and (as it grows) processes
+them with an LLM on a background worker, retrying safely on failure while clients
+poll for status. The interesting engineering is the **reliability around an
+unreliable, rate-limited, expensive LLM dependency** — not the model call itself.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+- **Architecture & flow diagrams:** [`docs/architecture.md`](docs/architecture.md)
+- **Design decisions (ADRs):** [`docs/adr/`](docs/adr/README.md)
 
-## Description
+## Tech stack
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+NestJS · TypeScript · PostgreSQL · TypeORM · OpenAPI/Swagger · Docker.
+Queue/worker (Redis · BullMQ) and local LLM inference (Ollama) arrive in later
+iterations. Everything runs locally at $0.
 
-## Project setup
+## Prerequisites
+
+- **Node ≥ 22.12** (the TypeORM migration CLI loads an ESM-only dependency)
+- **Docker** (for local PostgreSQL)
+
+## Getting started
 
 ```bash
-$ npm install
+# 1. install dependencies
+npm install
+
+# 2. start PostgreSQL
+docker compose up -d
+
+# 3. configure environment
+cp .env.example .env        # adjust if needed
+
+# 4. apply the database schema
+npm run migration:run
+
+# 5. run the API (watch mode)
+npm run start:dev
 ```
 
-## Compile and run the project
+The API listens on **http://localhost:8000** (override with `PORT`).
+
+## API documentation
+
+Interactive OpenAPI/Swagger UI is served once the app is running:
+
+- **Swagger UI:** http://localhost:8000/docs
+- **OpenAPI JSON:** http://localhost:8000/docs-json
+
+### Endpoints
+
+| Method & path     | Description                                  |
+| ----------------- | -------------------------------------------- |
+| `POST /tasks`     | Submit a task; returns it immediately as `pending`. |
+| `GET /tasks/:id`  | Fetch a task by id (`400` if malformed, `404` if absent). |
 
 ```bash
-# development
-$ npm run start
+# submit a task
+curl -X POST http://localhost:8000/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{ "type": "summarize", "payload": { "text": "..." } }'
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+# poll its status
+curl http://localhost:8000/tasks/<id>
 ```
 
-## Run tests
+A task has: `id`, `type`, `payload`, `status` (`pending` / `running` / `done` /
+`failed`), `result`, and `createdAt` / `updatedAt`.
+
+## Testing
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm test          # unit tests — no database required (the repository is mocked)
+npm run test:e2e  # e2e tests — require Postgres up + migrations applied
 ```
 
-## Deployment
+A **pre-push git hook** (managed by [lefthook](https://lefthook.dev)) runs
+`lint`, `test`, and `build` before every push, so broken code never reaches
+GitHub; the full suite incl. e2e runs in CI. It installs automatically on
+`npm install`; bypass with `git push --no-verify` if you must.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Database migrations
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+The schema is owned by migrations (`synchronize` is off). Migrations are
+hand-written under `src/migrations/`; the shared `DataSource` lives in
+`src/config/data-source.ts`.
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run migration:run                       # apply pending migrations
+npm run migration:revert                    # roll back the most recent
+npm run migration:generate -- src/migrations/<Name>   # diff entities → migration
+npm run migration:create   -- src/migrations/<Name>   # empty migration
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Project structure
 
-## Resources
+```
+src/
+  tasks/        # TasksModule — POST /tasks, GET /tasks/:id
+  llm/          # LlmModule — LlmProvider seam + EchoLlmProvider (stub)
+  config/       # data-source.ts — shared TypeORM DataSource
+  migrations/   # TypeORM migrations (schema source of truth)
+  main.ts       # bootstrap + Swagger setup
+docs/
+  architecture.md   # living system + flow diagrams (Mermaid)
+  adr/              # Architecture Decision Records
+docker-compose.yml  # local PostgreSQL
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+## Status
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+A typed, tested REST API that accepts tasks and persists them in PostgreSQL,
+documented with OpenAPI, with an `LlmProvider` adapter seam ready for real
+inference. Next: move the LLM call off the request path (queue + worker). See the
+[architecture doc](docs/architecture.md) for the current vs. target picture.
