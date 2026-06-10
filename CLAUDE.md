@@ -50,6 +50,13 @@ CI (`.github/workflows/ci.yml`) spins up a Postgres service, then runs
 lint → unit → migrations → e2e → build on push to `main` and on every PR. Keep
 it green.
 
+A **pre-push git hook** (lefthook, `lefthook.yml`) is the local pre-PR gate: it
+runs `lint`, `test`, and `build` (the DB-free checks) before any push leaves the
+machine, so obviously-broken code never reaches GitHub. The full suite —
+migrations + e2e against a real Postgres — stays in CI, which is the
+authoritative gate. The hook installs itself via the `prepare` npm script (run
+on `npm install`); bypass in a pinch with `git push --no-verify`.
+
 ## Architecture & conventions
 
 - **Modular NestJS + DI.** Each feature is a module owning its controller(s) and

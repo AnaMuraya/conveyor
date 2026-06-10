@@ -75,6 +75,11 @@ npm test          # unit tests — no database required (the repository is mocke
 npm run test:e2e  # e2e tests — require Postgres up + migrations applied
 ```
 
+A **pre-push git hook** (managed by [lefthook](https://lefthook.dev)) runs
+`lint`, `test`, and `build` before every push, so broken code never reaches
+GitHub; the full suite incl. e2e runs in CI. It installs automatically on
+`npm install`; bypass with `git push --no-verify` if you must.
+
 ## Database migrations
 
 The schema is owned by migrations (`synchronize` is off). Migrations are
