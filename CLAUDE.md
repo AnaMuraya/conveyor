@@ -35,6 +35,10 @@ npm run test:e2e      # e2e tests (test/*.e2e-spec.ts) — needs DB + migrations
 npm run build         # nest build -> dist/
 ```
 
+API docs: once running, Swagger UI is at http://localhost:8000/docs and the raw
+OpenAPI spec at `/docs-json` (configured in `main.ts`; endpoints/DTO/entity carry
+`@nestjs/swagger` decorators — ADR-0006).
+
 Migrations use the TypeORM CLI: `migration:run`, `migration:revert`,
 `migration:generate -- <path>` (diff entities → a new migration), and
 `migration:create -- <path>`. The CLI loads an ESM-only yargs, so the project
@@ -110,7 +114,7 @@ add a row to `docs/adr/README.md`.
 ## Current status
 
 Tasks API (`POST /tasks`, `GET /tasks/:id`) backed by **PostgreSQL via TypeORM**
-(migrations as the schema source of truth), plus an `LlmProvider` adapter seam
-with an echo stub (`EchoLlmProvider`). CI runs against a Postgres service. ADRs
-0001–0005 are in place. Next up: move the LLM call off the request path (queue +
-worker).
+(migrations as the schema source of truth) and **documented with OpenAPI/Swagger**
+at `/docs`, plus an `LlmProvider` adapter seam with an echo stub
+(`EchoLlmProvider`). CI runs against a Postgres service. ADRs 0001–0006 are in
+place. Next up: move the LLM call off the request path (queue + worker).
