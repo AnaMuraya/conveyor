@@ -1,0 +1,16 @@
+# Git hooks, managed by lefthook (run `lefthook install` once; npm does it
+# automatically via the "prepare" script on install).
+#
+# pre-push is the local pre-PR gate: the DB-free checks that CI also runs, so
+# obviously-broken code never leaves the machine. The full suite — migrations +
+# e2e against a real Postgres — stays in CI (.github/workflows/ci.yml), which is
+# the authoritative gate. Skip in a pinch with `git push --no-verify`.
+pre-push:
+  parallel: true
+  commands:
+    lint:
+      run: npm run lint
+    test:
+      run: npm test
+    build:
+      run: npm run build

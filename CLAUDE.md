@@ -35,6 +35,10 @@ npm run test:e2e      # e2e tests (test/*.e2e-spec.ts) — needs DB + migrations
 npm run build         # nest build -> dist/
 ```
 
+API docs: once running, Swagger UI is at http://localhost:8000/docs and the raw
+OpenAPI spec at `/docs-json` (configured in `main.ts`; endpoints/DTO/entity carry
+`@nestjs/swagger` decorators — ADR-0006).
+
 Migrations use the TypeORM CLI: `migration:run`, `migration:revert`,
 `migration:generate -- <path>` (diff entities → a new migration), and
 `migration:create -- <path>`. The CLI loads an ESM-only yargs, so the project
@@ -45,6 +49,13 @@ owned by migrations (`synchronize: false`); the shared `DataSource` lives in
 CI (`.github/workflows/ci.yml`) spins up a Postgres service, then runs
 lint → unit → migrations → e2e → build on push to `main` and on every PR. Keep
 it green.
+
+A **pre-push git hook** (lefthook, `lefthook.yml`) is the local pre-PR gate: it
+runs `lint`, `test`, and `build` (the DB-free checks) before any push leaves the
+machine, so obviously-broken code never reaches GitHub. The full suite —
+migrations + e2e against a real Postgres — stays in CI, which is the
+authoritative gate. The hook installs itself via the `prepare` npm script (run
+on `npm install`); bypass in a pinch with `git push --no-verify`.
 
 ## Architecture & conventions
 
@@ -110,7 +121,7 @@ add a row to `docs/adr/README.md`.
 ## Current status
 
 Tasks API (`POST /tasks`, `GET /tasks/:id`) backed by **PostgreSQL via TypeORM**
-(migrations as the schema source of truth), plus an `LlmProvider` adapter seam
-with an echo stub (`EchoLlmProvider`). CI runs against a Postgres service. ADRs
-0001–0005 are in place. Next up: move the LLM call off the request path (queue +
-worker).
+(migrations as the schema source of truth) and **documented with OpenAPI/Swagger**
+at `/docs`, plus an `LlmProvider` adapter seam with an echo stub
+(`EchoLlmProvider`). CI runs against a Postgres service. ADRs 0001–0006 are in
+place. Next up: move the LLM call off the request path (queue + worker).

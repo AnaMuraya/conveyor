@@ -15,7 +15,8 @@ this document shows the resulting structure and behaviour.
 
 A single NestJS application accepts tasks over HTTP and persists them in
 PostgreSQL via a TypeORM repository. The LLM provider seam exists but is not yet
-consumed by task processing.
+consumed by task processing. The HTTP API is documented with OpenAPI/Swagger,
+served at `/docs` (ADR-0006).
 
 ```mermaid
 flowchart LR

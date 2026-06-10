@@ -32,3 +32,4 @@ saga or a circuit breaker was skipped is as valuable as knowing why one was adde
 | [0003](0003-llmprovider-adapter-seam.md) | LLM access behind a provider adapter seam | Accepted |
 | [0004](0004-in-memory-task-store.md) | In-memory task store | Superseded by ADR-0005 |
 | [0005](0005-persist-tasks-in-postgres-via-typeorm.md) | Persist tasks in PostgreSQL via TypeORM | Accepted |
+| [0006](0006-document-the-api-with-openapi-swagger.md) | Document the API with OpenAPI/Swagger | Accepted |
