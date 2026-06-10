@@ -1,6 +1,6 @@
 # 0004. In-memory task store
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0005](0005-persist-tasks-in-postgres-via-typeorm.md)
 - **Date:** 2026-06-08
 
 ## Context

@@ -1,7 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
+
 import { AppModule } from './../src/app.module';
 import type { Task } from './../src/tasks/task.entity';
 
@@ -50,9 +51,13 @@ describe('Tasks (e2e)', () => {
   });
 
   // Failure path is the headline test.
-  it('GET /tasks/:id returns 404 for an unknown id', () => {
+  it('GET /tasks/:id returns 404 for an unknown (but valid) id', () => {
     return request(app.getHttpServer())
-      .get('/tasks/does-not-exist')
+      .get('/tasks/00000000-0000-0000-0000-000000000000')
       .expect(404);
+  });
+
+  it('GET /tasks/:id returns 400 for a malformed id', () => {
+    return request(app.getHttpServer()).get('/tasks/not-a-uuid').expect(400);
   });
 });

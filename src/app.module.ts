@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { TasksModule } from './tasks/tasks.module';
+import { dataSourceOptions } from './config/data-source';
 import { LlmModule } from './llm/llm.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
-  imports: [TasksModule, LlmModule],
+  imports: [TypeOrmModule.forRoot(dataSourceOptions), TasksModule, LlmModule],
   controllers: [AppController],
   providers: [AppService],
 })
