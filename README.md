@@ -11,14 +11,15 @@ unreliable, rate-limited, expensive LLM dependency** — not the model call itse
 
 ## Tech stack
 
-NestJS · TypeScript · PostgreSQL · TypeORM · OpenAPI/Swagger · Docker.
-Queue/worker (Redis · BullMQ) and local LLM inference (Ollama) arrive in later
-iterations. Everything runs locally at $0.
+NestJS · TypeScript · PostgreSQL · TypeORM · Redis · BullMQ · OpenAPI/Swagger ·
+Docker. Tasks are processed asynchronously by a separate worker; local LLM
+inference (Ollama) drops in behind the existing provider seam in a later
+iteration. Everything runs locally at $0.
 
 ## Prerequisites
 
 - **Node ≥ 22.12** (the TypeORM migration CLI loads an ESM-only dependency)
-- **Docker** (for local PostgreSQL)
+- **Docker** (for local PostgreSQL + Redis)
 
 ## Getting started
 
@@ -26,7 +27,7 @@ iterations. Everything runs locally at $0.
 # 1. install dependencies
 npm install
 
-# 2. start PostgreSQL
+# 2. start PostgreSQL + Redis
 docker compose up -d
 
 # 3. configure environment
@@ -37,9 +38,28 @@ npm run migration:run
 
 # 5. run the API (watch mode)
 npm run start:dev
+
+# 6. in a second terminal, run the worker (watch mode)
+npm run start:worker:dev
 ```
 
-The API listens on **http://localhost:8000** (override with `PORT`).
+The API listens on **http://localhost:8000** (override with `PORT`). The worker
+has no HTTP surface — it consumes the queue and processes tasks.
+
+## How it works
+
+`POST /tasks` persists the task as `pending` and enqueues a job, then returns
+immediately. A **separate worker process** consumes the BullMQ queue and runs the
+task through the LLM provider, writing the result back to Postgres. This keeps
+the slow LLM call off the request path, and means you can kill the worker while
+the API keeps accepting tasks — the worker drains the backlog when it restarts.
+Processing is idempotent (a redelivered job won't double-process) and retries
+with backoff before a task is marked `failed`. See
+[`docs/architecture.md`](docs/architecture.md) and
+[ADR-0007](docs/adr/0007-process-tasks-on-a-queue-backed-worker.md).
+
+> Tip: set `ECHO_LATENCY_MS=2000` for the worker to make a task linger in
+> `running` long enough to watch it transition as you poll.
 
 ## API documentation
 
@@ -71,9 +91,13 @@ A task has: `id`, `type`, `payload`, `status` (`pending` / `running` / `done` /
 ## Testing
 
 ```bash
-npm test          # unit tests — no database required (the repository is mocked)
-npm run test:e2e  # e2e tests — require Postgres up + migrations applied
+npm test          # unit tests — no Postgres/Redis (repository, queue, LLM are mocked)
+npm run test:e2e  # e2e tests — require Postgres + Redis up + migrations applied
 ```
+
+Unit tests cover the failure paths that matter — a redelivered job is skipped
+(no double-processing) and a task is marked `failed` only after retries are
+exhausted. `processing.e2e-spec.ts` runs a real queue round-trip end to end.
 
 A **pre-push git hook** (managed by [lefthook](https://lefthook.dev)) runs
 `lint`, `test`, and `build` before every push, so broken code never reaches
@@ -97,20 +121,25 @@ npm run migration:create   -- src/migrations/<Name>   # empty migration
 
 ```
 src/
-  tasks/        # TasksModule — POST /tasks, GET /tasks/:id
+  tasks/        # producer: controller + service (enqueues)
+                # consumer: task.processor.ts + tasks-processing.module.ts (worker-only)
   llm/          # LlmModule — LlmProvider seam + EchoLlmProvider (stub)
-  config/       # data-source.ts — shared TypeORM DataSource
+  config/       # data-source.ts (TypeORM), redis.ts (BullMQ connection)
   migrations/   # TypeORM migrations (schema source of truth)
-  main.ts       # bootstrap + Swagger setup
+  main.ts       # API entrypoint (HTTP + Swagger)
+  worker.ts     # worker entrypoint (queue consumer, no HTTP)
 docs/
   architecture.md   # living system + flow diagrams (Mermaid)
   adr/              # Architecture Decision Records
-docker-compose.yml  # local PostgreSQL
+docker-compose.yml  # local PostgreSQL + Redis
 ```
 
 ## Status
 
-A typed, tested REST API that accepts tasks and persists them in PostgreSQL,
-documented with OpenAPI, with an `LlmProvider` adapter seam ready for real
-inference. Next: move the LLM call off the request path (queue + worker). See the
+A typed, tested platform that accepts tasks over HTTP, persists them in
+PostgreSQL, and processes them asynchronously on a **separate worker** via a
+**Redis/BullMQ** queue — keeping the LLM call off the request path, with
+idempotent processing and retry-then-fail. Documented with OpenAPI; the
+`LlmProvider` seam is ready to swap the echo stub for real inference (Ollama).
+Next: real inference and/or a dead-letter queue for poison jobs. See the
 [architecture doc](docs/architecture.md) for the current vs. target picture.

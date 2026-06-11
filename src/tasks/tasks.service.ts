@@ -1,15 +1,24 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Queue } from 'bullmq';
 import type { Repository } from 'typeorm';
 
 import { CreateTaskDto } from './dto/create-task.dto';
 import { Task } from './task.entity';
+import {
+  PROCESS_TASK_JOB,
+  ProcessTaskJob,
+  TASKS_QUEUE,
+} from './tasks.constants';
 
 @Injectable()
 export class TasksService {
   constructor(
     @InjectRepository(Task)
     private readonly tasks: Repository<Task>,
+    @InjectQueue(TASKS_QUEUE)
+    private readonly queue: Queue<ProcessTaskJob>,
   ) {}
 
   async create(dto: CreateTaskDto): Promise<Task> {
@@ -19,7 +28,25 @@ export class TasksService {
       status: 'pending',
       result: null,
     });
-    return this.tasks.save(task);
+    const saved = await this.tasks.save(task);
+
+    // Hand off to the worker. The job id is the task id, so re-enqueuing the
+    // same task is a no-op (BullMQ dedupes by job id) — the API can't create
+    // two jobs for one task. The row is the source of truth; the job carries
+    // only the id and acts as a trigger.
+    await this.queue.add(
+      PROCESS_TASK_JOB,
+      { taskId: saved.id },
+      {
+        jobId: saved.id,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 1000 },
+        removeOnComplete: true,
+        removeOnFail: 1000,
+      },
+    );
+
+    return saved;
   }
 
   async findOne(id: string): Promise<Task> {

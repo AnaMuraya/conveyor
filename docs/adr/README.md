@@ -33,3 +33,4 @@ saga or a circuit breaker was skipped is as valuable as knowing why one was adde
 | [0004](0004-in-memory-task-store.md) | In-memory task store | Superseded by ADR-0005 |
 | [0005](0005-persist-tasks-in-postgres-via-typeorm.md) | Persist tasks in PostgreSQL via TypeORM | Accepted |
 | [0006](0006-document-the-api-with-openapi-swagger.md) | Document the API with OpenAPI/Swagger | Accepted |
+| [0007](0007-process-tasks-on-a-queue-backed-worker.md) | Process tasks asynchronously on a queue-backed worker | Accepted |

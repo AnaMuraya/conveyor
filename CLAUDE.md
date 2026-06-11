@@ -24,16 +24,23 @@ Everything runs locally at $0 (local Ollama for inference). Requires
 ## Commands
 
 ```bash
-docker compose up -d  # start PostgreSQL locally
-cp .env.example .env  # then set DB credentials
-npm run migration:run # apply migrations to the database
+docker compose up -d   # start PostgreSQL + Redis locally
+cp .env.example .env   # then set DB credentials
+npm run migration:run  # apply migrations to the database
 
-npm run start:dev     # run with watch
-npm run lint          # eslint (autofix)
-npm test              # unit tests (Jest, *.spec.ts under src/) — no DB needed
-npm run test:e2e      # e2e tests (test/*.e2e-spec.ts) — needs DB + migrations
-npm run build         # nest build -> dist/
+npm run start:dev        # run the API with watch
+npm run start:worker:dev # run the worker with watch (separate process)
+npm run lint             # eslint (autofix)
+npm test                 # unit tests (Jest, *.spec.ts under src/) — no DB/Redis
+npm run test:e2e         # e2e tests (test/*.e2e-spec.ts) — needs DB + Redis + migrations
+npm run build            # nest build -> dist/
 ```
+
+The **API and worker are two processes** sharing one codebase: the API
+(`main.ts`) accepts and enqueues tasks; the worker (`worker.ts`) consumes the
+BullMQ queue and runs the LLM call off the request path (ADR-0007). Run both in
+dev. Set `ECHO_LATENCY_MS` to make a task linger in `running` long enough to
+observe the async flow.
 
 API docs: once running, Swagger UI is at http://localhost:8000/docs and the raw
 OpenAPI spec at `/docs-json` (configured in `main.ts`; endpoints/DTO/entity carry
@@ -82,17 +89,24 @@ on `npm install`); bypass in a pinch with `git push --no-verify`.
 
 ```
 src/
-  tasks/        # TasksModule — POST /tasks, GET /tasks/:id (Postgres via TypeORM)
+  tasks/        # TasksModule (producer: controller + service, enqueues jobs)
+                #   tasks-processing.module.ts + task.processor.ts (consumer: worker-only)
+                #   tasks.constants.ts (queue name, job shape)
   llm/          # LlmModule — LlmProvider seam + EchoLlmProvider
-  config/       # data-source.ts — shared TypeORM DataSource (app + CLI)
+  config/       # data-source.ts (TypeORM DataSource), redis.ts (BullMQ connection)
   migrations/   # TypeORM migrations (schema source of truth)
-  app.module.ts # composes feature modules
+  app.module.ts # API composition root (HTTP)        → main.ts
+  worker.module.ts # worker composition root (no HTTP) → worker.ts
 docs/architecture.md  # living system + flow diagrams (Mermaid)
 docs/adr/             # Architecture Decision Records (see below)
-docker-compose.yml    # local PostgreSQL
+docker-compose.yml    # local PostgreSQL + Redis
 .github/workflows/ci.yml
-test/           # e2e specs
+test/           # e2e specs (incl. processing.e2e-spec.ts — queue round-trip)
 ```
+
+The producer/consumer split is deliberate: the BullMQ worker is created only in
+the worker process (it imports `TasksProcessingModule`); the API never consumes.
+Keep the processor out of `AppModule`.
 
 ## Architecture diagrams
 
@@ -122,6 +136,9 @@ add a row to `docs/adr/README.md`.
 
 Tasks API (`POST /tasks`, `GET /tasks/:id`) backed by **PostgreSQL via TypeORM**
 (migrations as the schema source of truth) and **documented with OpenAPI/Swagger**
-at `/docs`, plus an `LlmProvider` adapter seam with an echo stub
-(`EchoLlmProvider`). CI runs against a Postgres service. ADRs 0001–0006 are in
-place. Next up: move the LLM call off the request path (queue + worker).
+at `/docs`. The LLM call now runs **off the request path**: `POST /tasks`
+persists `pending` and enqueues a **BullMQ** job; a **separate worker process**
+consumes it and runs the `LlmProvider` (`EchoLlmProvider` stub), with idempotent
+processing and retry-then-fail (ADR-0007). CI runs against Postgres + Redis
+services. ADRs 0001–0007 are in place. Next up: real inference (Ollama behind the
+seam) and/or a dead-letter queue for poison jobs.

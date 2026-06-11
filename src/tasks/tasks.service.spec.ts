@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 import type { Repository } from 'typeorm';
 
 import { Task } from './task.entity';
+import { PROCESS_TASK_JOB } from './tasks.constants';
 import { TasksService } from './tasks.service';
 
 /**
@@ -27,11 +29,20 @@ function createRepositoryMock(): Repository<Task> {
   return mock as unknown as Repository<Task>;
 }
 
+/** Queue mock capturing enqueued jobs, no Redis required. */
+function createQueueMock(): { add: jest.Mock } & Queue {
+  return { add: jest.fn().mockResolvedValue(undefined) } as unknown as {
+    add: jest.Mock;
+  } & Queue;
+}
+
 describe('TasksService', () => {
   let service: TasksService;
+  let queue: { add: jest.Mock } & Queue;
 
   beforeEach(() => {
-    service = new TasksService(createRepositoryMock());
+    queue = createQueueMock();
+    service = new TasksService(createRepositoryMock(), queue);
   });
 
   describe('create', () => {
@@ -55,6 +66,20 @@ describe('TasksService', () => {
       const b = await service.create({ type: 'summarize', payload: {} });
 
       expect(a.id).not.toBe(b.id);
+    });
+
+    it('enqueues a job keyed by the task id (so re-enqueue is idempotent)', async () => {
+      const task = await service.create({ type: 'summarize', payload: {} });
+
+      expect(queue.add).toHaveBeenCalledTimes(1);
+      const [jobName, data, opts] = queue.add.mock.calls[0] as [
+        string,
+        { taskId: string },
+        { jobId: string },
+      ];
+      expect(jobName).toBe(PROCESS_TASK_JOB);
+      expect(data).toEqual({ taskId: task.id });
+      expect(opts.jobId).toBe(task.id);
     });
   });
 
