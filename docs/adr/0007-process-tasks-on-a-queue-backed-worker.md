@@ -35,7 +35,11 @@ process** consumes jobs and runs them through the `LlmProvider`.
   `pending` — a redelivered job can't re-run the LLM or overwrite a result.
 - **Retry then fail.** Jobs retry with exponential backoff (3 attempts); a task
   moves to `failed` only once attempts are exhausted, so a task that succeeds on
-  retry never shows `failed`.
+  retry never shows `failed`. **Jitter** (randomising the backoff delay so many
+  jobs that failed together don't retry in lockstep) is deliberately omitted —
+  it matters at scale, where a synchronized retry spike can hammer a recovering
+  dependency. Add it when concurrency is high enough for that to be a real risk,
+  not before.
 
 ## Consequences
 
@@ -61,6 +65,27 @@ process** consumes jobs and runs them through the `LlmProvider`.
   set plus the task's `failed` status cover exhausted retries for now; a DLQ is
   earned once there is explicit poison-job handling to justify it (ADR-style
   "earn every pattern").
+
+  Why not just consume the DB (`tasks WHERE status = 'failed'`) instead of a
+  DLQ? For *surfacing* failures — reporting, a user-facing "it failed" — the DB
+  is enough and we may never need a DLQ for that. The gap is *operational
+  replay*, and it comes down to the row and the job being different objects:
+  - **The row has no "run it again" button.** Resetting `status` to `pending` is
+    just a column write; nothing re-enqueues a job, so no worker picks it up. The
+    failed *job* is already a runnable thing — replay is moving it back to the
+    main queue; from the DB you'd rebuild and re-add the job, duplicating enqueue
+    logic.
+  - **The row lost the failure context.** The exception, stack trace, and
+    attempt count live on the job, not the row (the worker writes only
+    `status: 'failed'`). The DB knows *that* it failed, not *why*.
+  - **Safe re-claiming is the hard part, and it _is_ a queue.** A "replay failed
+    rows" loop across multiple workers double-processes unless you add
+    `SELECT … FOR UPDATE SKIP LOCKED`, atomic claims, and visibility timeouts —
+    i.e. you reimplement a queue inside Postgres. A DLQ already is that queue.
+
+  So: keep `status = 'failed'` as the source of truth for *which* tasks failed;
+  introduce a DLQ only alongside the replay/triage tooling (inspect the real
+  error, fix the cause, safely re-run specific jobs) that actually consumes it.
 - **Postgres-only (`SELECT … FOR UPDATE SKIP LOCKED`) as the queue:** avoids
   Redis, but we would be reimplementing retries, backoff, delays, and
   concurrency that BullMQ already provides. Redis is already on the v1.0 roadmap
