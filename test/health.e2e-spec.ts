@@ -5,7 +5,13 @@ import { App } from 'supertest/types';
 
 import { AppModule } from './../src/app.module';
 
-describe('AppController (e2e)', () => {
+interface HealthBody {
+  status: string;
+  uptime: number;
+  timestamp: string;
+}
+
+describe('Health (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeEach(async () => {
@@ -17,11 +23,15 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  it('GET /health reports ok', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/health')
       .expect(200)
-      .expect('Hello World!');
+      .expect((res) => {
+        const body = res.body as HealthBody;
+        expect(body.status).toBe('ok');
+        expect(typeof body.uptime).toBe('number');
+      });
   });
 
   afterEach(async () => {
