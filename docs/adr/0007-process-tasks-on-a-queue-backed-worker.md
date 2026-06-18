@@ -41,6 +41,33 @@ process** consumes jobs and runs them through the `LlmProvider`.
   dependency. Add it when concurrency is high enough for that to be a real risk,
   not before.
 
+### Sharpening the retry heuristic (deferred)
+
+The worker never actually *knows* whether a failure is a transient blip (would
+succeed on the next try) or a poison job (will fail forever). It only counts:
+once a job has failed `attempts` times it is *asserted* poison and the task is
+marked `failed`. That assertion is a bet — a 4th attempt might have worked. The
+following levers make the bet wrong less often. None is needed today (3 attempts
+over the current backoff is fine while volume is low and the only provider is the
+Echo stub); add them if/when poison jobs become real enough to warrant it:
+
+1. **Tune `attempts` + backoff to the failure you expect.** If real provider
+   outages last minutes, a tight retry budget mislabels an outage as poison.
+   Widen the backoff window (or raise `attempts`) so the transient case has time
+   to resolve. This just moves where the bet sits.
+2. **Classify errors instead of treating every throw alike.** Short-circuit
+   provably-permanent failures (validation/parse errors on `payload`, a provider
+   "content rejected") with BullMQ's `UnrecoverableError` so they fail fast
+   without burning retries; let plausibly-transient failures (timeouts, `429`,
+   `503`, connection resets) use the full budget. This is the real improvement —
+   it stops paying for retries that cannot succeed and stops giving up early on
+   ones that just need another minute.
+3. **Persist *why* it failed, not just *that* it did.** Today the worker writes
+   only `status: 'failed'`; recording the last error (message/class) lets poison
+   vs transient be recovered *after the fact* — the only time it is truly
+   knowable — and feeds triage and any future DLQ (see the DLQ note below, which
+   wants this same error context).
+
 ## Consequences
 
 - A new infra dependency: Redis (added to `docker-compose.yml` and CI). Local

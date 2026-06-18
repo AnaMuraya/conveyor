@@ -60,4 +60,26 @@ describe('Tasks (e2e)', () => {
   it('GET /tasks/:id returns 400 for a malformed id', () => {
     return request(app.getHttpServer()).get('/tasks/not-a-uuid').expect(400);
   });
+
+  // Input validation (global ValidationPipe) — the "garbage in" failure paths.
+  it('POST /tasks rejects a body missing required fields', () => {
+    return request(app.getHttpServer())
+      .post('/tasks')
+      .send({ payload: { text: 'no type' } })
+      .expect(400);
+  });
+
+  it('POST /tasks rejects a wrong-typed field', () => {
+    return request(app.getHttpServer())
+      .post('/tasks')
+      .send({ type: 123, payload: {} })
+      .expect(400);
+  });
+
+  it('POST /tasks rejects unknown properties (forbidNonWhitelisted)', () => {
+    return request(app.getHttpServer())
+      .post('/tasks')
+      .send({ type: 'summarize', payload: {}, sneaky: 'nope' })
+      .expect(400);
+  });
 });
