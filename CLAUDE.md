@@ -73,9 +73,11 @@ on `npm install`); bypass in a pinch with `git push --no-verify`.
   `LlmProvider` interface (`src/llm/`) is bound to a concrete provider in
   `LlmModule` via the `LLM_PROVIDER` token; swapping Echo → Ollama → hosted is a
   one-line change, never a caller change (ADR-0003).
-- **TypeScript contracts first.** DTOs, entities, and interfaces give
-  compile-time guarantees; broad runtime validation (class-validator) comes
-  later, though id params are already UUID-validated.
+- **TypeScript contracts first, validated at the edge.** DTOs, entities, and
+  interfaces give compile-time guarantees; a global `ValidationPipe`
+  (class-validator) enforces request bodies at runtime — `whitelist` +
+  `forbidNonWhitelisted` strip/reject unknown fields, registered via `APP_PIPE`
+  so it applies in tests too (ADR-0008). Id params are UUID-validated.
 - **Persistence behind the service.** `TasksService` depends on a TypeORM
   `Repository<Task>`; callers stay ORM-agnostic. Schema changes go through
   migrations, never `synchronize` (ADR-0005).

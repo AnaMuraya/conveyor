@@ -1,5 +1,6 @@
 import { BullModule } from '@nestjs/bullmq';
-import { Module } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { APP_PIPE } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { dataSourceOptions } from './config/data-source';
@@ -17,6 +18,20 @@ import { TasksModule } from './tasks/tasks.module';
     BullModule.forRoot({ connection: redisConnection }),
     HealthModule,
     TasksModule,
+  ],
+  providers: [
+    {
+      // Validate and sanitize every request body at the edge (ADR-0008).
+      // Registered via APP_PIPE rather than main.ts's useGlobalPipes so it is
+      // part of the module — it applies wherever AppModule is bootstrapped,
+      // including the e2e tests.
+      provide: APP_PIPE,
+      useValue: new ValidationPipe({
+        whitelist: true, // strip properties not declared on the DTO
+        forbidNonWhitelisted: true, // reject bodies that carry unknown properties
+        transform: true, // hand the handler a real DTO instance
+      }),
+    },
   ],
 })
 export class AppModule {}

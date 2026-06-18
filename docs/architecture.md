@@ -58,7 +58,9 @@ flowchart LR
 
 ### Create a task — `POST /tasks`
 
-The request returns as soon as the task is persisted and the job is queued; the
+The body is validated at the edge (global `ValidationPipe` — invalid or
+unknown-field bodies are rejected with `400` before the handler runs). The
+request then returns as soon as the task is persisted and the job is queued; the
 LLM call happens later, in the worker.
 
 ```mermaid
@@ -71,6 +73,7 @@ sequenceDiagram
   participant Q as Redis / BullMQ
 
   Client->>C: POST /tasks { type, payload }
+  Note over C: ValidationPipe — invalid body → 400
   C->>S: create(dto)
   S->>R: create + save (status = pending)
   R->>DB: INSERT INTO tasks ... RETURNING *
