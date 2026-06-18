@@ -14,6 +14,7 @@ async function bootstrap() {
     )
     .setVersion('0.1.0')
     .addTag('tasks', 'Submit tasks and poll their status')
+    .addTag('health', 'Liveness probe')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('docs', app, document);
