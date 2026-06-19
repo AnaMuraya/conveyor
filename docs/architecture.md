@@ -22,15 +22,25 @@ doesn't stop intake: the API keeps queuing, and the worker drains the backlog
 when it restarts (ADR-0007). The HTTP API is documented with OpenAPI/Swagger at
 `/docs` (ADR-0006).
 
+Requests are authenticated with **self-issued JWTs** (ADR-0009): clients
+register/log in for a bearer token, and a global guard rejects any unauthenticated
+request to a non-`@Public()` route. Tasks are owned by the user who created them —
+a caller sees only their own, except an `admin`. `/health` and `/auth` are public.
+
 ```mermaid
 flowchart LR
   Client([Client])
 
   subgraph API["API process (AppModule)"]
     direction TB
+    AC["AuthController<br/>POST /auth/register · /login"]
+    Guard{{"Global JwtAuthGuard<br/>+ RolesGuard"}}
     TC["TasksController<br/>POST /tasks · GET /tasks/:id"]
     TS["TasksService<br/>(producer)"]
     Repo1["Repository&lt;Task&gt;"]
+    RepoU["Repository&lt;User&gt;"]
+    AC --> RepoU
+    Guard -.->|guards| TC
     TC --> TS --> Repo1
   end
 
@@ -45,12 +55,14 @@ flowchart LR
   end
 
   Q[("Redis<br/>BullMQ 'tasks' queue")]
-  DB[("PostgreSQL<br/>tasks table")]
+  DB[("PostgreSQL<br/>tasks + users tables")]
 
-  Client -->|HTTP / JSON| TC
+  Client -->|"HTTP / JSON (Bearer)"| TC
+  Client -->|register / login| AC
   TS -->|"add(job: taskId)"| Q
   Q -->|consume| TP
   Repo1 -->|SQL| DB
+  RepoU -->|SQL| DB
   Repo2 -->|SQL| DB
 ```
 
@@ -58,10 +70,11 @@ flowchart LR
 
 ### Create a task — `POST /tasks`
 
-The body is validated at the edge (global `ValidationPipe` — invalid or
-unknown-field bodies are rejected with `400` before the handler runs). The
-request then returns as soon as the task is persisted and the job is queued; the
-LLM call happens later, in the worker.
+The request is authenticated first (global `JwtAuthGuard` — no/invalid token →
+`401`), then the body is validated at the edge (global `ValidationPipe` — invalid
+or unknown-field bodies are rejected with `400` before the handler runs). The task
+is stamped with the caller as owner, then the request returns as soon as it is
+persisted and the job is queued; the LLM call happens later, in the worker.
 
 ```mermaid
 sequenceDiagram
@@ -72,10 +85,11 @@ sequenceDiagram
   participant DB as PostgreSQL
   participant Q as Redis / BullMQ
 
-  Client->>C: POST /tasks { type, payload }
+  Client->>C: POST /tasks { type, payload } + Bearer
+  Note over C: JwtAuthGuard — no/invalid token → 401
   Note over C: ValidationPipe — invalid body → 400
-  C->>S: create(dto)
-  S->>R: create + save (status = pending)
+  C->>S: create(dto, ownerId)
+  S->>R: create + save (status = pending, ownerId)
   R->>DB: INSERT INTO tasks ... RETURNING *
   DB-->>R: row (id, timestamps)
   R-->>S: Task
@@ -114,8 +128,10 @@ sequenceDiagram
 
 ### Fetch a task — `GET /tasks/:id`
 
-`:id` is validated as a UUID first (`ParseUUIDPipe`), so a malformed id is
-rejected with `400` before any lookup.
+The caller is authenticated (`401` without a valid token), then `:id` is validated
+as a UUID (`ParseUUIDPipe`), so a malformed id is rejected with `400` before any
+lookup. A task is returned only to its owner (or an `admin`); anyone else gets
+`404` — the same as a non-existent id, so ownership isn't leaked (ADR-0009).
 
 ```mermaid
 sequenceDiagram
@@ -125,19 +141,18 @@ sequenceDiagram
   participant R as Repository
   participant DB as PostgreSQL
 
-  Client->>C: GET /tasks/:id
+  Client->>C: GET /tasks/:id + Bearer
+  Note over C: JwtAuthGuard — no/invalid token → 401
   Note over C: ParseUUIDPipe — malformed id → 400
-  C->>S: findOne(id)
+  C->>S: findOne(id, requester)
   S->>R: findOneBy({ id })
   R->>DB: SELECT * FROM tasks WHERE id = $1
-  alt found
+  alt found and (owner or admin)
     DB-->>R: row
     R-->>S: Task
     S-->>C: Task
     C-->>Client: 200 OK + Task
-  else not found
-    DB-->>R: (no rows)
-    R-->>S: null
+  else missing or not visible to caller
     S-->>C: throw NotFoundException
     C-->>Client: 404 Not Found
   end
@@ -169,6 +184,7 @@ flowchart LR
 | Concern | Today | Target |
 | --- | --- | --- |
 | Task intake | ✅ `TasksController`, returns immediately | same, behind a gateway |
+| Auth | ✅ self-issued JWT, per-user ownership, roles (ADR-0009) | + refresh tokens, gated registration |
 | Storage | ✅ PostgreSQL (TypeORM), shared by API + worker | same |
 | LLM work | ✅ worker calls the provider off the request path | same, real model |
 | Delivery | ✅ queue + retries (BullMQ); idempotent processing | + dead-letter queue for poison jobs |

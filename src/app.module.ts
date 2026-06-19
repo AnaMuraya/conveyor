@@ -3,10 +3,12 @@ import { Module, ValidationPipe } from '@nestjs/common';
 import { APP_PIPE } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuthModule } from './auth/auth.module';
 import { dataSourceOptions } from './config/data-source';
 import { redisConnection } from './config/redis';
 import { HealthModule } from './health/health.module';
 import { TasksModule } from './tasks/tasks.module';
+import { UsersModule } from './users/users.module';
 
 /**
  * Composition root for the API process. Accepts tasks over HTTP and enqueues
@@ -17,6 +19,8 @@ import { TasksModule } from './tasks/tasks.module';
     TypeOrmModule.forRoot(dataSourceOptions),
     BullModule.forRoot({ connection: redisConnection }),
     HealthModule,
+    AuthModule,
+    UsersModule,
     TasksModule,
   ],
   providers: [

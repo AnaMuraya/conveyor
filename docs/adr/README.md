@@ -35,3 +35,4 @@ saga or a circuit breaker was skipped is as valuable as knowing why one was adde
 | [0006](0006-document-the-api-with-openapi-swagger.md) | Document the API with OpenAPI/Swagger | Accepted |
 | [0007](0007-process-tasks-on-a-queue-backed-worker.md) | Process tasks asynchronously on a queue-backed worker | Accepted |
 | [0008](0008-validate-and-sanitize-input-with-a-global-validationpipe.md) | Validate and sanitize input with a global ValidationPipe | Accepted |
+| [0009](0009-authenticate-with-self-issued-jwts-via-passport.md) | Authenticate with self-issued JWTs via Passport | Accepted |

@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { Queue } from 'bullmq';
 import type { Repository } from 'typeorm';
 
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { Task } from './task.entity';
 import {
@@ -21,12 +22,13 @@ export class TasksService {
     private readonly queue: Queue<ProcessTaskJob>,
   ) {}
 
-  async create(dto: CreateTaskDto): Promise<Task> {
+  async create(dto: CreateTaskDto, ownerId: string): Promise<Task> {
     const task = this.tasks.create({
       type: dto.type,
       payload: dto.payload,
       status: 'pending',
       result: null,
+      ownerId,
     });
     const saved = await this.tasks.save(task);
 
@@ -49,9 +51,12 @@ export class TasksService {
     return saved;
   }
 
-  async findOne(id: string): Promise<Task> {
+  async findOne(id: string, requester: AuthenticatedUser): Promise<Task> {
     const task = await this.tasks.findOneBy({ id });
-    if (!task) {
+    // A task the caller may not see is reported as missing, not forbidden, so we
+    // don't leak that it exists (ADR-0009). Admins may read any task.
+    const isAdmin = requester.roles.includes('admin');
+    if (!task || (!isAdmin && task.ownerId !== requester.userId)) {
       throw new NotFoundException(`Task ${id} not found`);
     }
     return task;

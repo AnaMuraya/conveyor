@@ -13,6 +13,8 @@ async function bootstrap() {
         'slow LLM work runs asynchronously behind the API.',
     )
     .setVersion('0.1.0')
+    .addBearerAuth()
+    .addTag('auth', 'Register and log in to obtain a bearer token')
     .addTag('tasks', 'Submit tasks and poll their status')
     .addTag('health', 'Liveness probe')
     .build();

@@ -78,6 +78,11 @@ on `npm install`); bypass in a pinch with `git push --no-verify`.
   (class-validator) enforces request bodies at runtime — `whitelist` +
   `forbidNonWhitelisted` strip/reject unknown fields, registered via `APP_PIPE`
   so it applies in tests too (ADR-0008). Id params are UUID-validated.
+- **Authenticated by default.** Self-issued JWTs verified via Passport; a global
+  `JwtAuthGuard` (`APP_GUARD`) protects every route unless marked `@Public()`
+  (`/health`, `/auth`), so a new endpoint fails closed. A second `RolesGuard`
+  enforces `@Roles()`; tasks are owned by their creator and a non-owner gets
+  `404`, not `403` (admins see all) — ADR-0009.
 - **Persistence behind the service.** `TasksService` depends on a TypeORM
   `Repository<Task>`; callers stay ORM-agnostic. Schema changes go through
   migrations, never `synchronize` (ADR-0005).
@@ -94,8 +99,10 @@ src/
   tasks/        # TasksModule (producer: controller + service, enqueues jobs)
                 #   tasks-processing.module.ts + task.processor.ts (consumer: worker-only)
                 #   tasks.constants.ts (queue name, job shape)
+  auth/         # AuthModule — JWT strategy, global guards, @Public/@Roles/@CurrentUser
+  users/        # UsersModule — User entity + UsersService
   llm/          # LlmModule — LlmProvider seam + EchoLlmProvider
-  config/       # data-source.ts (TypeORM DataSource), redis.ts (BullMQ connection)
+  config/       # data-source.ts (TypeORM DataSource), redis.ts, auth.ts (JWT settings)
   migrations/   # TypeORM migrations (schema source of truth)
   app.module.ts # API composition root (HTTP)        → main.ts
   worker.module.ts # worker composition root (no HTTP) → worker.ts
@@ -141,6 +148,9 @@ Tasks API (`POST /tasks`, `GET /tasks/:id`) backed by **PostgreSQL via TypeORM**
 at `/docs`. The LLM call now runs **off the request path**: `POST /tasks`
 persists `pending` and enqueues a **BullMQ** job; a **separate worker process**
 consumes it and runs the `LlmProvider` (`EchoLlmProvider` stub), with idempotent
-processing and retry-then-fail (ADR-0007). CI runs against Postgres + Redis
-services. ADRs 0001–0007 are in place. Next up: real inference (Ollama behind the
+processing and retry-then-fail (ADR-0007). Requests are **authenticated with
+self-issued JWTs** (`POST /auth/register`, `POST /auth/login`); a global guard
+protects every route bar `/health` and `/auth`, tasks are scoped to their owner,
+and an `admin` role can read any task (ADR-0009). CI runs against Postgres + Redis
+services. ADRs 0001–0009 are in place. Next up: real inference (Ollama behind the
 seam) and/or a dead-letter queue for poison jobs.

@@ -11,10 +11,10 @@ unreliable, rate-limited, expensive LLM dependency** — not the model call itse
 
 ## Tech stack
 
-NestJS · TypeScript · PostgreSQL · TypeORM · Redis · BullMQ · OpenAPI/Swagger ·
-Docker. Tasks are processed asynchronously by a separate worker; local LLM
-inference (Ollama) drops in behind the existing provider seam in a later
-iteration. Everything runs locally at $0.
+NestJS · TypeScript · PostgreSQL · TypeORM · Redis · BullMQ · Passport/JWT ·
+OpenAPI/Swagger · Docker. Tasks are processed asynchronously by a separate
+worker, behind JWT authentication; local LLM inference (Ollama) drops in behind
+the existing provider seam in a later iteration. Everything runs locally at $0.
 
 ## Prerequisites
 
@@ -58,6 +58,11 @@ with backoff before a task is marked `failed`. See
 [`docs/architecture.md`](docs/architecture.md) and
 [ADR-0007](docs/adr/0007-process-tasks-on-a-queue-backed-worker.md).
 
+Requests are authenticated with self-issued JWTs: a global guard protects every
+route bar `/health` and `/auth`, so the API is secure by default, and tasks are
+scoped to the user who created them
+([ADR-0009](docs/adr/0009-authenticate-with-self-issued-jwts-via-passport.md)).
+
 > Tip: set `ECHO_LATENCY_MS=2000` for the worker to make a task linger in
 > `running` long enough to watch it transition as you poll.
 
@@ -70,23 +75,36 @@ Interactive OpenAPI/Swagger UI is served once the app is running:
 
 ### Endpoints
 
-| Method & path     | Description                                  |
-| ----------------- | -------------------------------------------- |
-| `POST /tasks`     | Submit a task; returns it immediately as `pending`. |
-| `GET /tasks/:id`  | Fetch a task by id (`400` if malformed, `404` if absent). |
+| Method & path        | Description                                  |
+| -------------------- | -------------------------------------------- |
+| `POST /auth/register`| Create a user; returns a bearer token. |
+| `POST /auth/login`   | Exchange credentials for a bearer token. |
+| `POST /tasks`        | Submit a task; returns it immediately as `pending`. **Auth required.** |
+| `GET /tasks/:id`     | Fetch your task by id (`401` unauthenticated, `400` malformed, `404` absent/not yours). |
+| `GET /health`        | Liveness probe (public). |
+
+The task endpoints are protected by a JWT (ADR-0009): register or log in for a
+token, then send it as `Authorization: Bearer <token>`. Tasks are owned by their
+creator — you only see your own (an `admin` sees all).
 
 ```bash
+# register (or log in) to get a token
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{ "username": "ana", "password": "a-strong-pass" }' | jq -r .accessToken)
+
 # submit a task
 curl -X POST http://localhost:8000/tasks \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{ "type": "summarize", "payload": { "text": "..." } }'
 
 # poll its status
-curl http://localhost:8000/tasks/<id>
+curl http://localhost:8000/tasks/<id> -H "Authorization: Bearer $TOKEN"
 ```
 
 A task has: `id`, `type`, `payload`, `status` (`pending` / `running` / `done` /
-`failed`), `result`, and `createdAt` / `updatedAt`.
+`failed`), `result`, `ownerId`, and `createdAt` / `updatedAt`.
 
 ## Testing
 
@@ -96,8 +114,10 @@ npm run test:e2e  # e2e tests — require Postgres + Redis up + migrations appli
 ```
 
 Unit tests cover the failure paths that matter — a redelivered job is skipped
-(no double-processing) and a task is marked `failed` only after retries are
-exhausted. `processing.e2e-spec.ts` runs a real queue round-trip end to end.
+(no double-processing), a task is marked `failed` only after retries are
+exhausted, and a task is hidden from non-owners. `processing.e2e-spec.ts` runs a
+real queue round-trip end to end; `auth.e2e-spec.ts` covers register/login and
+the `401`/ownership gates.
 
 A **pre-push git hook** (managed by [lefthook](https://lefthook.dev)) runs
 `lint`, `test`, and `build` before every push, so broken code never reaches
@@ -123,8 +143,10 @@ npm run migration:create   -- src/migrations/<Name>   # empty migration
 src/
   tasks/        # producer: controller + service (enqueues)
                 # consumer: task.processor.ts + tasks-processing.module.ts (worker-only)
+  auth/         # AuthModule — JWT strategy, global guards, decorators
+  users/        # UsersModule — User entity + service
   llm/          # LlmModule — LlmProvider seam + EchoLlmProvider (stub)
-  config/       # data-source.ts (TypeORM), redis.ts (BullMQ connection)
+  config/       # data-source.ts (TypeORM), redis.ts, auth.ts (JWT settings)
   migrations/   # TypeORM migrations (schema source of truth)
   main.ts       # API entrypoint (HTTP + Swagger)
   worker.ts     # worker entrypoint (queue consumer, no HTTP)
@@ -136,10 +158,11 @@ docker-compose.yml  # local PostgreSQL + Redis
 
 ## Status
 
-A typed, tested platform that accepts tasks over HTTP, persists them in
-PostgreSQL, and processes them asynchronously on a **separate worker** via a
-**Redis/BullMQ** queue — keeping the LLM call off the request path, with
-idempotent processing and retry-then-fail. Documented with OpenAPI; the
-`LlmProvider` seam is ready to swap the echo stub for real inference (Ollama).
-Next: real inference and/or a dead-letter queue for poison jobs. See the
-[architecture doc](docs/architecture.md) for the current vs. target picture.
+A typed, tested platform that accepts tasks over HTTP behind **JWT auth**
+(per-user ownership + roles), persists them in PostgreSQL, and processes them
+asynchronously on a **separate worker** via a **Redis/BullMQ** queue — keeping the
+LLM call off the request path, with idempotent processing and retry-then-fail.
+Documented with OpenAPI; the `LlmProvider` seam is ready to swap the echo stub for
+real inference (Ollama). Next: real inference and/or a dead-letter queue for
+poison jobs. See the [architecture doc](docs/architecture.md) for the current vs.
+target picture.
