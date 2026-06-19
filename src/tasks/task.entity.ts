@@ -62,6 +62,13 @@ export class Task {
   @Column({ type: 'text', nullable: true })
   result: string | null;
 
+  @ApiProperty({
+    format: 'uuid',
+    description: 'Id of the user who submitted the task (ADR-0009).',
+  })
+  @Column({ type: 'uuid', nullable: true })
+  ownerId: string | null;
+
   @ApiProperty({ description: 'When the task was created.' })
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;

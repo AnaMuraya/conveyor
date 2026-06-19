@@ -1,40 +1,43 @@
-import { BullModule, getQueueToken } from '@nestjs/bullmq';
+import { randomUUID } from 'node:crypto';
+import { getQueueToken } from '@nestjs/bullmq';
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import type { Queue } from 'bullmq';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
-import { dataSourceOptions } from './../src/config/data-source';
-import { redisConnection } from './../src/config/redis';
+import { AppModule } from './../src/app.module';
 import type { Task } from './../src/tasks/task.entity';
 import { TASKS_QUEUE } from './../src/tasks/tasks.constants';
-import { TasksModule } from './../src/tasks/tasks.module';
 import { TasksProcessingModule } from './../src/tasks/tasks-processing.module';
 
 /**
- * End-to-end across the queue: this app runs BOTH the producer (TasksModule)
- * and the consumer (TasksProcessingModule), so a submitted task is actually
- * processed — proving the asynchronous round-trip, not just enqueuing.
+ * End-to-end across the queue: this app runs the full API (AppModule) plus the
+ * consumer (TasksProcessingModule), so a submitted task is actually processed —
+ * proving the asynchronous round-trip, not just enqueuing.
  */
 describe('Task processing (e2e)', () => {
   let app: INestApplication<App>;
   let queue: Queue;
+  let token: string;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [
-        TypeOrmModule.forRoot(dataSourceOptions),
-        BullModule.forRoot({ connection: redisConnection }),
-        TasksModule,
-        TasksProcessingModule,
-      ],
+      imports: [AppModule, TasksProcessingModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
     queue = app.get<Queue>(getQueueToken(TASKS_QUEUE));
+
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        username: `user-${randomUUID().slice(0, 8)}`,
+        password: 'a-strong-pass',
+      })
+      .expect(201);
+    token = (res.body as { accessToken: string }).accessToken;
   });
 
   afterAll(async () => {
@@ -45,6 +48,7 @@ describe('Task processing (e2e)', () => {
   it('processes a submitted task to done with the generated result', async () => {
     const created = await request(app.getHttpServer())
       .post('/tasks')
+      .set('Authorization', `Bearer ${token}`)
       .send({ type: 'summarize', payload: { text: 'hello world' } })
       .expect(201);
 
@@ -63,6 +67,7 @@ describe('Task processing (e2e)', () => {
     while (Date.now() < deadline) {
       const res = await request(app.getHttpServer())
         .get(`/tasks/${id}`)
+        .set('Authorization', `Bearer ${token}`)
         .expect(200);
       const task = res.body as Task;
       if (task.status === 'done' || task.status === 'failed') {

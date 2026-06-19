@@ -6,6 +6,8 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 
+import { Public } from '../auth/decorators/public.decorator';
+
 /** Shape returned by the liveness probe. */
 export class HealthStatus {
   @ApiProperty({
@@ -31,6 +33,7 @@ export class HealthController {
    * is briefly unreachable. Dependency reachability is a separate *readiness*
    * concern.
    */
+  @Public()
   @Get()
   @ApiOperation({ summary: 'Liveness probe' })
   @ApiOkResponse({ description: 'The process is up.', type: HealthStatus })

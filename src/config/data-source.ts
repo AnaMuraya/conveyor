@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { DataSource, DataSourceOptions } from 'typeorm';
 
 import { Task } from '../tasks/task.entity';
+import { User } from '../users/user.entity';
 
 /**
  * Single source of TypeORM connection settings, shared by the Nest app
@@ -20,7 +21,7 @@ export const dataSourceOptions: DataSourceOptions = {
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? 'postgres',
   database: process.env.DB_NAME ?? 'conveyor',
-  entities: [Task],
+  entities: [Task, User],
   migrations: [join(__dirname, '..', 'migrations', '*.{ts,js}')],
   synchronize: false,
   logging: process.env.DB_LOGGING === 'true',
